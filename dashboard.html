@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Intent Stack</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0a;
+      color: #d4d4d4;
+      padding: 2rem;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #1e1e1e;
+    }
+
+    header h1 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .refresh {
+      background: none;
+      border: 1px solid #2a2a2a;
+      color: #555;
+      padding: 0.35rem 0.8rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+
+    .refresh:hover { border-color: #444; color: #aaa; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+      gap: 1rem;
+    }
+
+    .card {
+      background: #111;
+      border: 1px solid #1e1e1e;
+      border-radius: 12px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      transition: border-color 0.15s;
+    }
+
+    .card:hover { border-color: #2a2a2a; }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .account-name {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .score-badge {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.22rem 0.65rem;
+      border-radius: 20px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .score-badge.high { background: #0a1f12; color: #4ade80; border: 1px solid #14532d; }
+    .score-badge.med  { background: #171200; color: #fbbf24; border: 1px solid #78350f; }
+    .score-badge.low  { background: #170808; color: #f87171; border: 1px solid #7f1d1d; }
+
+    .firmographics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .firmo-pill {
+      font-size: 0.7rem;
+      padding: 0.22rem 0.6rem;
+      border-radius: 4px;
+      color: #555;
+      background: #141414;
+      border: 1px solid #1e1e1e;
+    }
+
+    .firmo-pill span { color: #888; font-weight: 500; }
+
+    .firmo-pill.signal {
+      background: #0d1f0e;
+      border-color: #1a3a1c;
+      color: #4ade80;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #171717;
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .section-label {
+      font-size: 0.62rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #333;
+    }
+
+    .bullets {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .bullet {
+      display: grid;
+      grid-template-columns: 6px 1fr;
+      gap: 0.6rem;
+      align-items: start;
+    }
+
+    .bullet-dot {
+      width: 3px;
+      height: 3px;
+      background: #2e2e2e;
+      border-radius: 50%;
+      margin-top: 0.52rem;
+      flex-shrink: 0;
+    }
+
+    .bullet-text {
+      font-size: 0.78rem;
+      color: #777;
+      line-height: 1.7;
+    }
+
+    .bullet-text strong {
+      color: #bbb;
+      font-weight: 500;
+    }
+
+    .meta {
+      font-size: 0.65rem;
+      color: #2a2a2a;
+    }
+
+    .empty {
+      color: #2a2a2a;
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 5rem;
+      grid-column: 1/-1;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚡ Intent Stack</h1>
+    <button class="refresh" onclick="load()">↻ Refresh</button>
+  </header>
+  <div class="grid" id="grid"></div>
+
+  <script>
+    async function load() {
+      const res = await fetch('/api/results');
+      const data = await res.json();
+      const grid = document.getElementById('grid');
+
+      if (!data.length) {
+        grid.innerHTML = '<div class="empty">No results yet — run the pipeline first.</div>';
+        return;
+      }
+
+      grid.innerHTML = data.map(r => {
+        const scoreClass = r.score >= 8 ? 'high' : r.score >= 5 ? 'med' : 'low';
+        const date = new Date(r.scored_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const apollo = r.apollo_data || {};
+
+        const whyAccount = extractSection(r.narrative || '', ['why this account', '1.']);
+        const whyNow = extractSection(r.narrative || '', ['why now', '2.']);
+
+        // Fact pills — neutral grey
+        const factPills = [];
+        if (apollo.employee_count) factPills.push(`Employees: <span>${Number(apollo.employee_count).toLocaleString()}</span>`);
+        if (apollo.founded_year) factPills.push(`Founded: <span>${apollo.founded_year}</span>`);
+        if (apollo.location) factPills.push(`HQ: <span>${apollo.location}</span>`);
+        if (apollo.headcount_6mo_growth) factPills.push(`6mo growth: <span>+${apollo.headcount_6mo_growth}%</span>`);
+        if (apollo.num_open_jobs) factPills.push(`Open roles: <span>${apollo.num_open_jobs}</span>`);
+        if (apollo.latest_funding_date) factPills.push(`Last funding: <span>${new Date(apollo.latest_funding_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>`);
+
+        // Signal pills — green highlights
+        const signalPills = [];
+        if (apollo.uses_kubernetes) signalPills.push('⎈ Kubernetes confirmed');
+        if (apollo.born_in_cloud) signalPills.push('☁ Born in cloud');
+        if (apollo.active_devex_jobs) signalPills.push('⚙ DevEx hiring');
+
+        const allPills = [
+          ...factPills.map(p => `<div class="firmo-pill">${p}</div>`),
+          ...signalPills.map(p => `<div class="firmo-pill signal">${p}</div>`),
+        ].join('');
+
+        const firmoHTML = allPills
+          ? `<div class="firmographics">${allPills}</div><hr class="divider">`
+          : '';
+
+        const whyAccountHTML = whyAccount
+          ? `<div class="section">
+               <div class="section-label">Why this account</div>
+               <div class="bullets">${toBullets(whyAccount)}</div>
+             </div>`
+          : '';
+
+        const whyNowHTML = whyNow
+          ? `<div class="section">
+               <div class="section-label">Why now</div>
+               <div class="bullets">${toBullets(whyNow)}</div>
+             </div>`
+          : '';
+
+        return `
+          <div class="card">
+            <div class="card-header">
+              <span class="account-name">${r.name}</span>
+              <span class="score-badge ${scoreClass}">${r.score}/10 · ${r.confidence || ''}</span>
+            </div>
+            ${firmoHTML}
+            ${whyAccountHTML}
+            ${whyNowHTML}
+            <div class="meta">${date}</div>
+          </div>`;
+      }).join('');
+    }
+
+    function cleanText(text) {
+      return text
+        .replace(/^\*\*.*?\*\*\s*/,'')
+        .replace(/^#+\s*/gm, '')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^[-–—]\s*/gm, '')
+        .trim();
+    }
+
+    function toBullets(text) {
+      const cleaned = cleanText(text);
+
+      const sentences = cleaned
+        .split(/(?<=[.!?])\s+(?=[A-Z"'])/)
+        .map(s => s.replace(/^[-–—]\s*/, '').trim())
+        .filter(s => s.length > 20);
+
+      if (sentences.length <= 1) {
+        return `<div class="bullet"><div class="bullet-dot"></div><div class="bullet-text">${cleaned}</div></div>`;
+      }
+
+      return sentences
+        .map(s => `<div class="bullet"><div class="bullet-dot"></div><div class="bullet-text">${s}</div></div>`)
+        .join('');
+    }
+
+    function extractSection(text, markers) {
+      const stripped = text
+        .replace(/^\*\*.*?\*\*\s*\n?/,'')
+        .replace(/^#+.*\n?/,'')
+        .replace(/^\*Score.*\n?/,'')
+        .replace(/^---\s*\n?/,'');
+
+      const lower = stripped.toLowerCase();
+      let start = -1;
+      let markerLen = 0;
+
+      for (const m of markers) {
+        const idx = lower.indexOf(m);
+        if (idx !== -1) { start = idx; markerLen = m.length; break; }
+      }
+      if (start === -1) return null;
+
+      const nextMarkers = ['2.', '3.', 'why now', 'suggested opener', '**3'];
+      let end = stripped.length;
+      for (const m of nextMarkers) {
+        const idx = lower.indexOf(m, start + 5);
+        if (idx !== -1 && idx < end) end = idx;
+      }
+
+      return stripped.slice(start + markerLen, end)
+        .replace(/^\*?\*?\s*(why this account|why now)?\s*\*?\*?:?\s*/i, '')
+        .replace(/\n+/g, ' ')
+        .trim();
+    }
+
+    load();
+  </script>
+</body>
+</html>

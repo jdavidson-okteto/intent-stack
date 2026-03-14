@@ -49,7 +49,7 @@ HIGH-INTENT signals (each one increases score significantly):
 - Previous Salesforce opportunity: this account was in our pipeline before — use the stage, loss reason, and competitors to understand context
 - Gong call history: there are recorded conversations with this account — use the call briefs and key points for context
 - Recent funding round: Apollo shows funding in the last 6 months
-- Born-in-cloud company: founded after 2002 with 300-5000 employees — cloud-native by default, in the ideal size band for platform tooling decisions, boost score by 1-2 points
+- Born-in-cloud company: founded after 2002 with 300-5000 employees — cloud-native by default, boost score by 1-2 points
 
 LOW-INTENT signals:
 - No engineering hiring activity
@@ -68,7 +68,7 @@ Return ONLY valid JSON: { "score": number, "top_signals": string[], "confidence"
 // ─── Apollo enrichment ────────────────────────────────────────────────────────
 async function enrichFromApollo(domain, accountName) {
   try {
-    // Step 1: get company data including tech stack, headcount, funding
+    // Step 1: get company data — Apollo returns under accounts or organizations
     const orgRes = await axios.post(
       'https://api.apollo.io/api/v1/mixed_companies/search',
       {
@@ -78,7 +78,7 @@ async function enrichFromApollo(domain, accountName) {
       { headers: { 'x-api-key': process.env.APOLLO_API_KEY } }
     );
 
-    const org = orgRes.data.organizations?.[0];
+    const org = orgRes.data.organizations?.[0] || orgRes.data.accounts?.[0];
     if (!org) return null;
 
     // Step 2: check for active Platform/DevEx job postings
@@ -98,35 +98,48 @@ async function enrichFromApollo(domain, accountName) {
       { headers: { 'x-api-key': process.env.APOLLO_API_KEY } }
     );
 
-    const hasDevExJobs = (jobRes.data.organizations?.[0]?.num_jobs || 0) > 0;
+    const hasDevExJobs = (
+      jobRes.data.organizations?.[0]?.num_jobs ||
+      jobRes.data.accounts?.[0]?.num_jobs ||
+      0
+    ) > 0;
 
     // Step 3: check for employee movement from customer accounts
     const customerMatches = [];
     const shuffled = [...CURRENT_CUSTOMERS].sort(() => 0.5 - Math.random()).slice(0, 3);
 
     for (const customer of shuffled) {
-      const peopleRes = await axios.post(
-        'https://api.apollo.io/api/v1/mixed_people/search',
-        {
-          q_organization_domains_list: [domain],
-          q_keywords: customer,
-          per_page: 1,
-        },
-        { headers: { 'x-api-key': process.env.APOLLO_API_KEY } }
-      );
+      try {
+        const peopleRes = await axios.post(
+          'https://api.apollo.io/api/v1/mixed_people/search',
+          {
+            q_organization_domains_list: [domain],
+            q_keywords: customer,
+            per_page: 1,
+          },
+          { headers: { 'x-api-key': process.env.APOLLO_API_KEY } }
+        );
 
-      if (peopleRes.data.people?.length > 0) {
-        customerMatches.push({
-          customer,
-          person: peopleRes.data.people[0].name,
-          title: peopleRes.data.people[0].title,
-        });
+        const people = peopleRes.data.people || [];
+        if (people.length > 0) {
+          customerMatches.push({
+            customer,
+            person: people[0].name,
+            title: people[0].title,
+          });
+        }
+      } catch {
+        // skip individual customer match failures silently
       }
     }
 
     // Step 4: born-in-cloud firmographic check
     const foundedYear = org.founded_year;
     const employeeCount = org.estimated_num_employees;
+    const headcount6moGrowth = org.organization_headcount_six_month_growth
+      ? Math.round(org.organization_headcount_six_month_growth * 100)
+      : null;
+
     const bornInCloud =
       foundedYear != null &&
       employeeCount != null &&
@@ -139,11 +152,9 @@ async function enrichFromApollo(domain, accountName) {
       company_name: org.name,
       founded_year: foundedYear,
       employee_count: employeeCount,
-      born_in_cloud: bornInCloud,
-      born_in_cloud_reason: bornInCloud
-        ? `Founded ${foundedYear} with ${employeeCount} employees — cloud-native by default, in the ideal size band for platform tooling decisions`
-        : null,
-      headcount_6mo_growth: org.growth_6m_pct,
+      revenue: org.organization_revenue_printed,
+      location: [org.organization_city, org.organization_country].filter(Boolean).join(', '),
+      headcount_6mo_growth: headcount6moGrowth,
       technologies: org.technologies?.map(t => t.name) || [],
       uses_kubernetes: org.technologies?.some(t =>
         t.name?.toLowerCase().includes('kubernetes')
@@ -153,22 +164,24 @@ async function enrichFromApollo(domain, accountName) {
       active_devex_jobs: hasDevExJobs,
       num_open_jobs: org.num_jobs,
       customer_employee_matches: customerMatches,
+      born_in_cloud: bornInCloud,
+      born_in_cloud_reason: bornInCloud
+        ? `Founded ${foundedYear} with ${employeeCount} employees — cloud-native by default`
+        : null,
     };
   } catch (err) {
     console.error(`Apollo enrichment failed for ${domain}:`, err.message);
     return null;
   }
 }
+
 // ─── Salesforce enrichment ────────────────────────────────────────────────────
 async function enrichFromSalesforce(domain) {
   try {
-    // Step 1: find the Account by Domain__c
     const accountRes = await axios.get(
       `${process.env.SF_INSTANCE_URL}/services/data/v59.0/query`,
       {
-        params: {
-          q: `SELECT Id, Name FROM Account WHERE Domain__c = '${domain}' LIMIT 1`
-        },
+        params: { q: `SELECT Id, Name FROM Account WHERE Domain__c = '${domain}' LIMIT 1` },
         headers: { Authorization: `Bearer ${process.env.SF_ACCESS_TOKEN}` },
       }
     );
@@ -178,7 +191,6 @@ async function enrichFromSalesforce(domain) {
 
     const accountId = account.Id;
 
-    // Step 2: get most recent opportunity
     const oppRes = await axios.get(
       `${process.env.SF_INSTANCE_URL}/services/data/v59.0/query`,
       {
@@ -196,7 +208,6 @@ async function enrichFromSalesforce(domain) {
 
     const opp = oppRes.data.records?.[0];
 
-    // Step 3: pull directly from Gong Conversation object matched by Primary Account
     const gongRes = await axios.get(
       `${process.env.SF_INSTANCE_URL}/services/data/v59.0/query`,
       {
@@ -319,12 +330,19 @@ async function generateNarrative(accountName, signals, crmData, score) {
     max_tokens: 500,
     messages: [{
       role: 'user',
-      content: `
-You are writing a rep briefing for Okteto, a developer platform company.
-Write 3 sentences for ${accountName}.
-Score: ${score.score}/10. Top signals: ${score.top_signals.join(', ')}.
+      content: `You are writing a rep briefing for Okteto, a developer platform company.
 
-Rules:
+STRICT FORMATTING RULES — follow exactly:
+- Do NOT include any title, header, company name, score line, or preamble
+- Do NOT use any markdown — no **, no ##, no *, no ---, no #
+- Do NOT number the sections
+- Start your response with exactly "Why this account:" on its own line
+- Then write 3-4 plain sentences
+- Then write "Why now:" on its own line
+- Then write 3-4 plain sentences
+- Nothing else before, after, or between
+
+Content rules:
 - If there is a previous Salesforce opportunity, reference what happened and why now is different
 - If there are Gong call briefs, reference specific things that were discussed
 - If Apollo shows Kubernetes in the tech stack, mention it specifically
@@ -332,14 +350,11 @@ Rules:
 - If Apollo shows recent funding, reference it as a reason timing is right
 - Be specific, never generic. Every claim must be grounded in the data below
 
-Format:
-1. Why this account (what signals make them a fit right now)
-2. Why now (what has changed, or what CRM or Apollo context makes this the right moment)
-3. Suggested opener for outreach — specific enough that the rep can send it today
-
+Account: ${accountName}
+Score: ${score.score}/10
+Top signals: ${score.top_signals.join(', ')}
 Web signals: ${JSON.stringify(signals.slice(0, 2))}
-CRM data: ${JSON.stringify(crmData)}
-      `,
+CRM data: ${JSON.stringify(crmData)}`,
     }],
   });
 
@@ -351,7 +366,6 @@ async function runPipeline() {
   refreshSalesforceToken();
   console.log('Pipeline started...');
 
-  // Clear today's scores to avoid duplicates on reruns
   await db.query(`DELETE FROM scores WHERE scored_at::date = CURRENT_DATE`);
 
   const { rows: accounts } = await db.query(
@@ -364,7 +378,6 @@ async function runPipeline() {
     try {
       console.log(`Processing ${account.name}...`);
 
-      // Run Serper, Apollo and Salesforce in parallel
       const [signals, apolloData, salesforceData] = await Promise.all([
         fetchSignals(account.id, account.name),
         enrichFromApollo(account.domain, account.name),
@@ -375,9 +388,9 @@ async function runPipeline() {
       const score = await scoreAccount(account.name, signals, crmData);
 
       await db.query(
-        `INSERT INTO scores (account_id, score, top_signals, confidence)
-         VALUES ($1, $2, $3, $4)`,
-        [account.id, score.score, JSON.stringify(score.top_signals), score.confidence]
+        `INSERT INTO scores (account_id, score, top_signals, confidence, crm_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [account.id, score.score, JSON.stringify(score.top_signals), score.confidence, JSON.stringify(crmData)]
       );
 
       scores.push({ account, score, signals, crmData });
@@ -387,7 +400,6 @@ async function runPipeline() {
     }
   }
 
-  // Narratives for top accounts only
   const top = scores
     .sort((a, b) => b.score.score - a.score.score)
     .slice(0, 10);
@@ -414,5 +426,4 @@ async function runPipeline() {
   console.log('Pipeline complete.');
 }
 
-cron.schedule('0 6 1,8,15,22 * *', runPipeline);
-console.log('Scheduler running. Waiting for next cron run...');
+runPipeline();
