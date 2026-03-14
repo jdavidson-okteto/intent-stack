@@ -534,4 +534,5 @@ async function runPipeline() {
   console.log('Pipeline complete.');
 }
 
-runPipeline();
+cron.schedule('0 6 1,8,15,22 * *', runPipeline);
+console.log('Scheduler running.');
