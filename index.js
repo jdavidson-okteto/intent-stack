@@ -65,33 +65,182 @@ Score guide:
 Return ONLY valid JSON: { "score": number, "top_signals": string[], "confidence": "high"|"medium"|"low" }
 `;
 
+// ─── Auto-prospect from Apollo ────────────────────────────────────────────────
+async function prospectNewAccounts() {
+  console.log('Prospecting new accounts from Apollo...');
+
+  const allCandidates = [];
+  const totalPages = 50;
+
+  // Consultancy/agency keywords to exclude
+  const EXCLUDE_KEYWORDS = [
+    'consulting', 'consultancy', 'agency', 'advisory', 'services firm',
+    'managed services', 'systems integrator', 'staffing', 'outsourcing',
+  ];
+
+  for (let page = 1; page <= totalPages; page++) {
+    try {
+      const res = await axios.post(
+        'https://api.apollo.io/api/v1/mixed_companies/search',
+        {
+          // Geography — US, Canada, Israel, Europe
+          organization_locations: [
+            'United States',
+            'Canada',
+            'Israel',
+            'United Kingdom',
+            'Germany',
+            'France',
+            'Netherlands',
+            'Sweden',
+            'Spain',
+            'Denmark',
+            'Finland',
+            'Norway',
+            'Switzerland',
+            'Poland',
+            'Czech Republic',
+            'Romania',
+            'Portugal',
+          ],
+
+          // Company size
+          organization_num_employees_ranges: ['201,500', '501,1000', '1001,5000'],
+
+          // Active job postings matching your ICP roles
+          q_organization_job_titles: [
+            'platform engineer',
+            'platform engineering',
+            'developer experience',
+            'devex engineer',
+            'internal developer platform',
+            'developer productivity',
+            'devops engineer',
+            'devops',
+          ],
+
+          // Must use mature CI/CD or container tech
+          currently_using_any_of_technology_uids: [
+            'kubernetes',
+            'docker',
+            'github_actions',
+            'argocd',
+            'jenkins',
+            'gitlab',
+          ],
+
+          per_page: 100,
+          page,
+        },
+        { headers: { 'x-api-key': process.env.APOLLO_API_KEY } }
+      );
+
+      const orgs = [
+        ...(res.data.organizations || []),
+        ...(res.data.accounts || []),
+      ];
+
+      console.log(`Page ${page}: ${orgs.length} companies. Total: ${allCandidates.length}`);
+
+      if (orgs.length === 0) {
+        console.log('No more results, stopping.');
+        break;
+      }
+
+      for (const org of orgs) {
+        if (!org.primary_domain) continue;
+
+        // Skip consultancies and agencies
+        const nameAndKeywords = `${org.name} ${(org.keywords || []).join(' ')}`.toLowerCase();
+        if (EXCLUDE_KEYWORDS.some(k => nameAndKeywords.includes(k))) continue;
+
+        let icpScore = 0;
+        const employeeCount = org.estimated_num_employees || 0;
+        const growth6mo = org.organization_headcount_six_month_growth || 0;
+        const growth12mo = org.organization_headcount_twelve_month_growth || 0;
+        const foundedYear = org.founded_year || 0;
+
+        // Growth signals
+        if (growth12mo >= 0.2) icpScore += 4;   // 20%+ growth in last year — your key signal
+        if (growth12mo >= 0.5) icpScore += 2;   // 50%+ bonus
+        if (growth6mo >= 0.2) icpScore += 2;    // also growing fast recently
+
+        // Born in cloud
+        if (foundedYear >= 2002) icpScore += 2;
+
+        // Sweet spot size
+        if (employeeCount >= 300 && employeeCount <= 2000) icpScore += 1;
+
+        // Recent funding
+        if (org.latest_funding_round_date) {
+          const fundingAge = Date.now() - new Date(org.latest_funding_round_date).getTime();
+          if (fundingAge < 180 * 24 * 60 * 60 * 1000) icpScore += 2;
+        }
+
+        allCandidates.push({
+          name: org.name,
+          domain: org.primary_domain,
+          icpScore,
+        });
+      }
+
+      const totalPagesAvailable = res.data.pagination?.total_pages || 0;
+      if (page >= totalPagesAvailable) {
+        console.log(`Reached last page (${totalPagesAvailable}), stopping.`);
+        break;
+      }
+
+      await new Promise(r => setTimeout(r, 300));
+
+    } catch (err) {
+      console.error(`Apollo page ${page} failed:`, err.message);
+      break;
+    }
+  }
+
+  const top = allCandidates
+    .sort((a, b) => b.icpScore - a.icpScore)
+    .slice(0, 50);
+
+  console.log(`Top ${top.length} from ${allCandidates.length} total.`);
+
+  await db.query('DELETE FROM accounts WHERE priority = 0');
+
+  let added = 0;
+  for (const candidate of top) {
+    try {
+      await db.query(
+        'INSERT INTO accounts (name, domain, priority) VALUES ($1, $2, $3) ON CONFLICT (domain) DO NOTHING',
+        [candidate.name, candidate.domain, 0]
+      );
+      added++;
+    } catch (err) {
+      console.error(`Failed to insert ${candidate.name}:`, err.message);
+    }
+  }
+
+  console.log(`Added ${added} fresh prospect accounts.`);
+}
+
 // ─── Apollo enrichment ────────────────────────────────────────────────────────
 async function enrichFromApollo(domain, accountName) {
   try {
-    // Step 1: get company data — Apollo returns under accounts or organizations
     const orgRes = await axios.post(
       'https://api.apollo.io/api/v1/mixed_companies/search',
-      {
-        q_organization_domains_list: [domain],
-        per_page: 1,
-      },
+      { q_organization_domains_list: [domain], per_page: 1 },
       { headers: { 'x-api-key': process.env.APOLLO_API_KEY } }
     );
 
     const org = orgRes.data.organizations?.[0] || orgRes.data.accounts?.[0];
     if (!org) return null;
 
-    // Step 2: check for active Platform/DevEx job postings
     const jobRes = await axios.post(
       'https://api.apollo.io/api/v1/mixed_companies/search',
       {
         q_organization_domains_list: [domain],
         q_organization_job_titles: [
-          'platform engineer',
-          'developer experience',
-          'devex engineer',
-          'internal developer portal',
-          'developer productivity',
+          'platform engineer', 'developer experience',
+          'devex engineer', 'internal developer portal', 'developer productivity',
         ],
         per_page: 1,
       },
@@ -100,11 +249,9 @@ async function enrichFromApollo(domain, accountName) {
 
     const hasDevExJobs = (
       jobRes.data.organizations?.[0]?.num_jobs ||
-      jobRes.data.accounts?.[0]?.num_jobs ||
-      0
+      jobRes.data.accounts?.[0]?.num_jobs || 0
     ) > 0;
 
-    // Step 3: check for employee movement from customer accounts
     const customerMatches = [];
     const shuffled = [...CURRENT_CUSTOMERS].sort(() => 0.5 - Math.random()).slice(0, 3);
 
@@ -119,7 +266,6 @@ async function enrichFromApollo(domain, accountName) {
           },
           { headers: { 'x-api-key': process.env.APOLLO_API_KEY } }
         );
-
         const people = peopleRes.data.people || [];
         if (people.length > 0) {
           customerMatches.push({
@@ -128,28 +274,19 @@ async function enrichFromApollo(domain, accountName) {
             title: people[0].title,
           });
         }
-      } catch {
-        // skip individual customer match failures silently
-      }
+      } catch { /* skip */ }
     }
 
-    // Step 4: born-in-cloud firmographic check
     const foundedYear = org.founded_year;
     const employeeCount = org.estimated_num_employees;
     const headcount6moGrowth = org.organization_headcount_six_month_growth
       ? Math.round(org.organization_headcount_six_month_growth * 100)
       : null;
 
-    const bornInCloud =
-      foundedYear != null &&
-      employeeCount != null &&
-      foundedYear >= 2002 &&
-      employeeCount >= 300 &&
-      employeeCount <= 5000;
-
     return {
       source: 'apollo',
       company_name: org.name,
+      linkedin_url: org.linkedin_url || null,
       founded_year: foundedYear,
       employee_count: employeeCount,
       revenue: org.organization_revenue_printed,
@@ -164,10 +301,8 @@ async function enrichFromApollo(domain, accountName) {
       active_devex_jobs: hasDevExJobs,
       num_open_jobs: org.num_jobs,
       customer_employee_matches: customerMatches,
-      born_in_cloud: bornInCloud,
-      born_in_cloud_reason: bornInCloud
-        ? `Founded ${foundedYear} with ${employeeCount} employees — cloud-native by default`
-        : null,
+      born_in_cloud: foundedYear != null && employeeCount != null &&
+        foundedYear >= 2002 && employeeCount >= 300 && employeeCount <= 5000,
     };
   } catch (err) {
     console.error(`Apollo enrichment failed for ${domain}:`, err.message);
@@ -188,7 +323,6 @@ async function enrichFromSalesforce(domain) {
 
     const account = accountRes.data.records?.[0];
     if (!account) return null;
-
     const accountId = account.Id;
 
     const oppRes = await axios.get(
@@ -262,7 +396,6 @@ async function enrichFromSalesforce(domain) {
 function buildQueries(accountName) {
   const shuffled = [...CURRENT_CUSTOMERS].sort(() => 0.5 - Math.random());
   const customerSample = shuffled.slice(0, 2);
-
   return [
     `"${accountName}" Kubernetes`,
     `"${accountName}" ("platform engineer" OR "developer experience" OR "DevEx" OR "internal developer portal" OR "developer productivity") job hiring`,
@@ -284,10 +417,7 @@ async function fetchSignals(accountId, accountName) {
       );
       results.push({
         q,
-        hits: data.organic?.slice(0, 3).map(r => ({
-          title: r.title,
-          snippet: r.snippet,
-        })),
+        hits: data.organic?.slice(0, 3).map(r => ({ title: r.title, snippet: r.snippet })),
       });
     } catch (err) {
       console.error(`Serper failed for "${q}":`, err.message);
@@ -366,8 +496,13 @@ async function runPipeline() {
   refreshSalesforceToken();
   console.log('Pipeline started...');
 
+  // Step 1: auto-prospect top candidates from Apollo
+  await prospectNewAccounts();
+
+  // Step 2: clear today's scores
   await db.query(`DELETE FROM scores WHERE scored_at::date = CURRENT_DATE`);
 
+  // Step 3: score top 10 from freshly prospected list
   const { rows: accounts } = await db.query(
     'SELECT * FROM accounts ORDER BY priority DESC LIMIT 10'
   );
@@ -400,15 +535,14 @@ async function runPipeline() {
     }
   }
 
+  // Step 4: narratives for top 10
   const top = scores
     .sort((a, b) => b.score.score - a.score.score)
     .slice(0, 10);
 
   for (const { account, score, signals, crmData } of top) {
     try {
-      const narrative = await generateNarrative(
-        account.name, signals, crmData, score
-      );
+      const narrative = await generateNarrative(account.name, signals, crmData, score);
 
       await db.query(
         `UPDATE scores SET narrative = $1
