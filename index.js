@@ -471,7 +471,7 @@ CRM data: ${JSON.stringify(crmData)}`,
 
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
 async function runPipeline() {
-  refreshSalesforceToken();
+  await refreshSalesforceToken();
   console.log('Pipeline started...');
 
   await prospectNewAccounts();
