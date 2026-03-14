@@ -78,18 +78,44 @@
       color: #fff;
     }
 
+    .badges {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
     .score-badge {
       font-size: 0.72rem;
       font-weight: 600;
       padding: 0.22rem 0.65rem;
       border-radius: 20px;
       white-space: nowrap;
-      flex-shrink: 0;
     }
 
     .score-badge.high { background: #0a1f12; color: #4ade80; border: 1px solid #14532d; }
     .score-badge.med  { background: #171200; color: #fbbf24; border: 1px solid #78350f; }
     .score-badge.low  { background: #170808; color: #f87171; border: 1px solid #7f1d1d; }
+
+    .pipeline-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.18rem 0.5rem;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+
+    .pipeline-badge.in-pipeline {
+      background: #1a1200;
+      color: #f59e0b;
+      border: 1px solid #78350f;
+    }
+
+    .pipeline-badge.net-new {
+      background: #0a0a14;
+      color: #444;
+      border: 1px solid #1e1e2a;
+    }
 
     .firmographics {
       display: flex;
@@ -216,9 +242,11 @@
         const scoreClass = r.score >= 8 ? 'high' : r.score >= 5 ? 'med' : 'low';
         const date = new Date(r.scored_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         const apollo = r.apollo_data || {};
+        const sfData = r.crm_data?.salesforce || {};
+        const inPipeline = sfData.has_open_opportunity;
 
-        const whyAccount = extractSection(r.narrative || '', ['why this account', '1.']);
-        const whyNow = extractSection(r.narrative || '', ['why now', '2.']);
+        const whyAccount = extractSection(r.narrative || '', 'account');
+        const whyNow = extractSection(r.narrative || '', 'now');
 
         // Fact pills
         const factPills = [];
@@ -250,6 +278,10 @@
           ? `<div class="firmographics">${allPills}</div><hr class="divider">`
           : '';
 
+        const pipelineBadge = inPipeline
+          ? `<span class="pipeline-badge in-pipeline">⚡ In Pipeline</span>`
+          : `<span class="pipeline-badge net-new">Net New</span>`;
+
         const whyAccountHTML = whyAccount
           ? `<div class="section">
                <div class="section-label">Why this account</div>
@@ -264,27 +296,58 @@
              </div>`
           : '';
 
-const sfData = r.crm_data?.salesforce || {};
-const inPipeline = sfData.has_open_opportunity;
-const pipelineBadge = inPipeline
-  ? `<span style="font-size:0.65rem;background:#1a1200;color:#f59e0b;border:1px solid #78350f;padding:0.15rem 0.5rem;border-radius:4px;white-space:nowrap;">⚡ In Pipeline</span>`
-  : `<span style="font-size:0.65rem;background:#0a0a14;color:#555;border:1px solid #1e1e2a;padding:0.15rem 0.5rem;border-radius:4px;white-space:nowrap;">Net New</span>`;
-
-return `
-  <div class="card">
-    <div class="card-header">
-      <span class="account-name">${r.name}</span>
-      <div style="display:flex;gap:0.4rem;align-items:center;flex-shrink:0;">
-        ${pipelineBadge}
-        <span class="score-badge ${scoreClass}">${r.score}/10 · ${r.confidence || ''}</span>
-      </div>
-    </div>
+        return `
+          <div class="card">
+            <div class="card-header">
+              <span class="account-name">${r.name}</span>
+              <div class="badges">
+                ${pipelineBadge}
+                <span class="score-badge ${scoreClass}">${r.score}/10 · ${r.confidence || ''}</span>
+              </div>
+            </div>
             ${firmoHTML}
             ${whyAccountHTML}
             ${whyNowHTML}
             <div class="meta">${date}</div>
           </div>`;
       }).join('');
+    }
+
+    function extractSection(text, section) {
+      // Strip any leading title/header lines
+      const stripped = text
+        .replace(/^\*\*.*?\*\*\s*\n?/, '')
+        .replace(/^#+.*\n?/, '')
+        .replace(/^\*Score.*\n?/, '')
+        .replace(/^---\s*\n?/, '');
+
+      const lower = stripped.toLowerCase();
+
+      // Find exact positions of both section markers
+      const accountIdx = lower.indexOf('why this account:');
+      const nowIdx = lower.indexOf('why now:');
+
+      if (section === 'account') {
+        if (accountIdx === -1) return null;
+        const start = accountIdx + 'why this account:'.length;
+        // Cut off exactly at "why now:" — never go past it
+        const end = nowIdx > accountIdx ? nowIdx : stripped.length;
+        return stripped.slice(start, end)
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n+/g, ' ')
+          .trim();
+      }
+
+      if (section === 'now') {
+        if (nowIdx === -1) return null;
+        const start = nowIdx + 'why now:'.length;
+        return stripped.slice(start)
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n+/g, ' ')
+          .trim();
+      }
+
+      return null;
     }
 
     function cleanText(text) {
@@ -310,36 +373,6 @@ return `
       return sentences
         .map(s => `<div class="bullet"><div class="bullet-dot"></div><div class="bullet-text">${s}</div></div>`)
         .join('');
-    }
-
-    function extractSection(text, markers) {
-      const stripped = text
-        .replace(/^\*\*.*?\*\*\s*\n?/, '')
-        .replace(/^#+.*\n?/, '')
-        .replace(/^\*Score.*\n?/, '')
-        .replace(/^---\s*\n?/, '');
-
-      const lower = stripped.toLowerCase();
-      let start = -1;
-      let markerLen = 0;
-
-      for (const m of markers) {
-        const idx = lower.indexOf(m);
-        if (idx !== -1) { start = idx; markerLen = m.length; break; }
-      }
-      if (start === -1) return null;
-
-      const nextMarkers = ['2.', '3.', 'why now', 'suggested opener', '**3'];
-      let end = stripped.length;
-      for (const m of nextMarkers) {
-        const idx = lower.indexOf(m, start + 5);
-        if (idx !== -1 && idx < end) end = idx;
-      }
-
-      return stripped.slice(start + markerLen, end)
-        .replace(/^\*?\*?\s*(why this account|why now)?\s*\*?\*?:?\s*/i, '')
-        .replace(/\n+/g, ' ')
-        .trim();
     }
 
     load();

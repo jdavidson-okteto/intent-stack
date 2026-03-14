@@ -41,8 +41,8 @@ Score accounts 1-10 on purchase intent based on the signals below.
 
 HIGH-INTENT signals (each one increases score significantly):
 - Kubernetes confirmed: Apollo tech stack or web signals confirm Kubernetes usage
-- Engineering headcount growth 20%+: Apollo shows 6-month headcount growth over 20%
-- Active Platform or Developer Experience job posting: Apollo or web signals show hiring for platform engineering, DevEx, internal developer portal, or developer productivity roles
+- Engineering headcount growth 20%+: Apollo shows 6-month or 12-month headcount growth over 20%
+- Active Platform or Developer Experience job posting: Apollo or web signals show hiring for platform engineering, DevEx, internal developer portal, developer productivity, or DevOps roles
 - New Platform or DevEx leader hired: a new VP/Director/Head of Platform, DevEx, or Developer Productivity has joined
 - Any Platform or DevEx hire: any engineer hired into a platform, DevEx, or internal tooling role
 - Employee from a current Okteto customer has moved to this account: Apollo confirms a person from a customer company now works here
@@ -51,12 +51,14 @@ HIGH-INTENT signals (each one increases score significantly):
 - Recent funding round: Apollo shows funding in the last 6 months
 - Born-in-cloud company: founded after 2002 with 300-5000 employees — cloud-native by default, boost score by 1-2 points
 
+CONTEXTUAL signals:
+- Already has an open Salesforce opportunity: account is already being worked by the team — note this in your signals as "Already in pipeline"
+
 LOW-INTENT signals:
 - No engineering hiring activity
 - Shrinking engineering headcount or layoffs
 - No mention of Kubernetes, platform teams, or developer tooling
 - Already using a direct competitor with no signs of switching
-- Already has an open Salesforce opportunity — account is already in pipeline, flag as "In Pipeline" not a new prospect
 
 Score guide:
 - 8-10: Multiple high-intent signals, especially CRM + Apollo signals together
@@ -73,7 +75,6 @@ async function prospectNewAccounts() {
   const allCandidates = [];
   const totalPages = 50;
 
-  // Consultancy/agency keywords to exclude
   const EXCLUDE_KEYWORDS = [
     'consulting', 'consultancy', 'agency', 'advisory', 'services firm',
     'managed services', 'systems integrator', 'staffing', 'outsourcing',
@@ -84,31 +85,13 @@ async function prospectNewAccounts() {
       const res = await axios.post(
         'https://api.apollo.io/api/v1/mixed_companies/search',
         {
-          // Geography — US, Canada, Israel, Europe
           organization_locations: [
-            'United States',
-            'Canada',
-            'Israel',
-            'United Kingdom',
-            'Germany',
-            'France',
-            'Netherlands',
-            'Sweden',
-            'Spain',
-            'Denmark',
-            'Finland',
-            'Norway',
-            'Switzerland',
-            'Poland',
-            'Czech Republic',
-            'Romania',
-            'Portugal',
+            'United States', 'Canada', 'Israel',
+            'United Kingdom', 'Germany', 'France', 'Netherlands',
+            'Sweden', 'Spain', 'Denmark', 'Finland', 'Norway',
+            'Switzerland', 'Poland', 'Czech Republic', 'Romania', 'Portugal',
           ],
-
-          // Company size
           organization_num_employees_ranges: ['201,500', '501,1000', '1001,5000'],
-
-          // Active job postings matching your ICP roles
           q_organization_job_titles: [
             'platform engineer',
             'platform engineering',
@@ -119,8 +102,6 @@ async function prospectNewAccounts() {
             'devops engineer',
             'devops',
           ],
-
-          // Must use mature CI/CD or container tech
           currently_using_any_of_technology_uids: [
             'kubernetes',
             'docker',
@@ -129,7 +110,6 @@ async function prospectNewAccounts() {
             'jenkins',
             'gitlab',
           ],
-
           per_page: 100,
           page,
         },
@@ -151,7 +131,6 @@ async function prospectNewAccounts() {
       for (const org of orgs) {
         if (!org.primary_domain) continue;
 
-        // Skip consultancies and agencies
         const nameAndKeywords = `${org.name} ${(org.keywords || []).join(' ')}`.toLowerCase();
         if (EXCLUDE_KEYWORDS.some(k => nameAndKeywords.includes(k))) continue;
 
@@ -161,18 +140,11 @@ async function prospectNewAccounts() {
         const growth12mo = org.organization_headcount_twelve_month_growth || 0;
         const foundedYear = org.founded_year || 0;
 
-        // Growth signals
-        if (growth12mo >= 0.2) icpScore += 4;   // 20%+ growth in last year — your key signal
-        if (growth12mo >= 0.5) icpScore += 2;   // 50%+ bonus
-        if (growth6mo >= 0.2) icpScore += 2;    // also growing fast recently
-
-        // Born in cloud
+        if (growth12mo >= 0.2) icpScore += 4;
+        if (growth12mo >= 0.5) icpScore += 2;
+        if (growth6mo >= 0.2) icpScore += 2;
         if (foundedYear >= 2002) icpScore += 2;
-
-        // Sweet spot size
         if (employeeCount >= 300 && employeeCount <= 2000) icpScore += 1;
-
-        // Recent funding
         if (org.latest_funding_round_date) {
           const fundingAge = Date.now() - new Date(org.latest_funding_round_date).getTime();
           if (fundingAge < 180 * 24 * 60 * 60 * 1000) icpScore += 2;
@@ -205,6 +177,7 @@ async function prospectNewAccounts() {
 
   console.log(`Top ${top.length} from ${allCandidates.length} total.`);
 
+  // CASCADE constraints handle signals/scores automatically
   await db.query('DELETE FROM accounts WHERE priority = 0');
 
   let added = 0;
@@ -242,6 +215,7 @@ async function enrichFromApollo(domain, accountName) {
         q_organization_job_titles: [
           'platform engineer', 'developer experience',
           'devex engineer', 'internal developer portal', 'developer productivity',
+          'devops engineer', 'devops',
         ],
         per_page: 1,
       },
@@ -362,19 +336,19 @@ async function enrichFromSalesforce(domain) {
 
     const calls = gongRes.data.records || [];
 
-return {
-  source: 'salesforce',
-  account_name: account.Name,
-  has_open_opportunity: opp ? !opp.IsClosed : false,
-  previous_opportunity: opp ? {
-    stage: opp.StageName,
-    is_won: opp.IsWon,
-    is_lost: opp.IsClosed && !opp.IsWon,
-    loss_reason: opp.Loss_Reason__c,
-    loss_description: opp.Loss_Reason_Description__c,
-    competitors: opp.Gong__MainCompetitors__c,
-    close_date: opp.CloseDate,
-  } : null,
+    return {
+      source: 'salesforce',
+      account_name: account.Name,
+      has_open_opportunity: opp ? !opp.IsClosed : false,
+      previous_opportunity: opp ? {
+        stage: opp.StageName,
+        is_won: opp.IsWon,
+        is_lost: opp.IsClosed && !opp.IsWon,
+        loss_reason: opp.Loss_Reason__c,
+        loss_description: opp.Loss_Reason_Description__c,
+        competitors: opp.Gong__MainCompetitors__c,
+        close_date: opp.CloseDate,
+      } : null,
       gong_calls: calls
         .filter(c =>
           c.Gong__Call_Brief__c &&
@@ -400,7 +374,7 @@ function buildQueries(accountName) {
   const customerSample = shuffled.slice(0, 2);
   return [
     `"${accountName}" Kubernetes`,
-    `"${accountName}" ("platform engineer" OR "developer experience" OR "DevEx" OR "internal developer portal" OR "developer productivity") job hiring`,
+    `"${accountName}" ("platform engineer" OR "developer experience" OR "DevEx" OR "internal developer portal" OR "developer productivity" OR "devops") job hiring`,
     `"${accountName}" engineering hiring growth 2024 2025`,
     `site:linkedin.com "${accountName}" "${customerSample[0]}" OR "${customerSample[1]}"`,
   ];
@@ -464,23 +438,25 @@ async function generateNarrative(accountName, signals, crmData, score) {
       role: 'user',
       content: `You are writing a rep briefing for Okteto, a developer platform company.
 
-STRICT FORMATTING RULES — follow exactly:
-- Do NOT include any title, header, company name, score line, or preamble
-- Do NOT use any markdown — no **, no ##, no *, no ---, no #
-- Do NOT number the sections
-- Start your response with exactly "Why this account:" on its own line
-- Then write 3-4 plain sentences
-- Then write "Why now:" on its own line
-- Then write 3-4 plain sentences
-- Nothing else before, after, or between
+OUTPUT EXACTLY THIS FORMAT — nothing before, nothing after, nothing between:
 
-Content rules:
-- If there is a previous Salesforce opportunity, reference what happened and why now is different
-- If there are Gong call briefs, reference specific things that were discussed
+Why this account:
+[3-4 sentences here]
+
+Why now:
+[3-4 sentences here]
+
+RULES:
+- The words "Why this account:" must appear exactly once, at the very start
+- The words "Why now:" must appear exactly once, after the first section
+- Do NOT repeat "Why this account" anywhere in the "Why now" section
+- Do NOT use any markdown, bold, headers, bullets, numbers, or symbols
+- Do NOT write the company name as a header
+- If the account already has an open Salesforce opportunity, note the team is already engaged and focus on what has changed
+- If there are Gong call briefs, reference specific things discussed
 - If Apollo shows Kubernetes in the tech stack, mention it specifically
-- If Apollo shows a customer employee match, name the person and their previous company
 - If Apollo shows recent funding, reference it as a reason timing is right
-- Be specific, never generic. Every claim must be grounded in the data below
+- Every sentence must reference specific data from the signals below
 
 Account: ${accountName}
 Score: ${score.score}/10
@@ -498,13 +474,10 @@ async function runPipeline() {
   refreshSalesforceToken();
   console.log('Pipeline started...');
 
-  // Step 1: auto-prospect top candidates from Apollo
   await prospectNewAccounts();
 
-  // Step 2: clear today's scores
   await db.query(`DELETE FROM scores WHERE scored_at::date = CURRENT_DATE`);
 
-  // Step 3: score top 10 from freshly prospected list
   const { rows: accounts } = await db.query(
     'SELECT * FROM accounts ORDER BY priority DESC LIMIT 10'
   );
@@ -537,7 +510,6 @@ async function runPipeline() {
     }
   }
 
-  // Step 4: narratives for top 10
   const top = scores
     .sort((a, b) => b.score.score - a.score.score)
     .slice(0, 10);
