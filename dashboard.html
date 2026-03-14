@@ -95,6 +95,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 0.4rem;
+      align-items: center;
     }
 
     .firmo-pill {
@@ -104,6 +105,8 @@
       color: #555;
       background: #141414;
       border: 1px solid #1e1e1e;
+      text-decoration: none;
+      display: inline-block;
     }
 
     .firmo-pill span { color: #888; font-weight: 500; }
@@ -112,6 +115,17 @@
       background: #0d1f0e;
       border-color: #1a3a1c;
       color: #4ade80;
+    }
+
+    .firmo-pill.linkedin {
+      background: #0a1628;
+      border-color: #0a66c2;
+      color: #4a9eda;
+    }
+
+    .firmo-pill.linkedin:hover {
+      background: #0d1e3a;
+      color: #6db3f2;
     }
 
     .divider {
@@ -206,7 +220,7 @@
         const whyAccount = extractSection(r.narrative || '', ['why this account', '1.']);
         const whyNow = extractSection(r.narrative || '', ['why now', '2.']);
 
-        // Fact pills — neutral grey
+        // Fact pills
         const factPills = [];
         if (apollo.employee_count) factPills.push(`Employees: <span>${Number(apollo.employee_count).toLocaleString()}</span>`);
         if (apollo.founded_year) factPills.push(`Founded: <span>${apollo.founded_year}</span>`);
@@ -215,15 +229,21 @@
         if (apollo.num_open_jobs) factPills.push(`Open roles: <span>${apollo.num_open_jobs}</span>`);
         if (apollo.latest_funding_date) factPills.push(`Last funding: <span>${new Date(apollo.latest_funding_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>`);
 
-        // Signal pills — green highlights
+        // Signal pills
         const signalPills = [];
         if (apollo.uses_kubernetes) signalPills.push('⎈ Kubernetes confirmed');
         if (apollo.born_in_cloud) signalPills.push('☁ Born in cloud');
         if (apollo.active_devex_jobs) signalPills.push('⚙ DevEx hiring');
 
+        // LinkedIn pill
+        const linkedinPill = apollo.linkedin_url
+          ? `<a href="${apollo.linkedin_url}" target="_blank" class="firmo-pill linkedin">↗ LinkedIn</a>`
+          : '';
+
         const allPills = [
           ...factPills.map(p => `<div class="firmo-pill">${p}</div>`),
           ...signalPills.map(p => `<div class="firmo-pill signal">${p}</div>`),
+          linkedinPill,
         ].join('');
 
         const firmoHTML = allPills
@@ -260,7 +280,7 @@
 
     function cleanText(text) {
       return text
-        .replace(/^\*\*.*?\*\*\s*/,'')
+        .replace(/^\*\*.*?\*\*\s*/, '')
         .replace(/^#+\s*/gm, '')
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/^[-–—]\s*/gm, '')
@@ -269,7 +289,6 @@
 
     function toBullets(text) {
       const cleaned = cleanText(text);
-
       const sentences = cleaned
         .split(/(?<=[.!?])\s+(?=[A-Z"'])/)
         .map(s => s.replace(/^[-–—]\s*/, '').trim())
@@ -286,10 +305,10 @@
 
     function extractSection(text, markers) {
       const stripped = text
-        .replace(/^\*\*.*?\*\*\s*\n?/,'')
-        .replace(/^#+.*\n?/,'')
-        .replace(/^\*Score.*\n?/,'')
-        .replace(/^---\s*\n?/,'');
+        .replace(/^\*\*.*?\*\*\s*\n?/, '')
+        .replace(/^#+.*\n?/, '')
+        .replace(/^\*Score.*\n?/, '')
+        .replace(/^---\s*\n?/, '');
 
       const lower = stripped.toLowerCase();
       let start = -1;
