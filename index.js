@@ -56,6 +56,7 @@ LOW-INTENT signals:
 - Shrinking engineering headcount or layoffs
 - No mention of Kubernetes, platform teams, or developer tooling
 - Already using a direct competitor with no signs of switching
+- Already has an open Salesforce opportunity — account is already in pipeline, flag as "In Pipeline" not a new prospect
 
 Score guide:
 - 8-10: Multiple high-intent signals, especially CRM + Apollo signals together
@@ -361,18 +362,19 @@ async function enrichFromSalesforce(domain) {
 
     const calls = gongRes.data.records || [];
 
-    return {
-      source: 'salesforce',
-      account_name: account.Name,
-      previous_opportunity: opp ? {
-        stage: opp.StageName,
-        is_won: opp.IsWon,
-        is_lost: opp.IsClosed && !opp.IsWon,
-        loss_reason: opp.Loss_Reason__c,
-        loss_description: opp.Loss_Reason_Description__c,
-        competitors: opp.Gong__MainCompetitors__c,
-        close_date: opp.CloseDate,
-      } : null,
+return {
+  source: 'salesforce',
+  account_name: account.Name,
+  has_open_opportunity: opp ? !opp.IsClosed : false,
+  previous_opportunity: opp ? {
+    stage: opp.StageName,
+    is_won: opp.IsWon,
+    is_lost: opp.IsClosed && !opp.IsWon,
+    loss_reason: opp.Loss_Reason__c,
+    loss_description: opp.Loss_Reason_Description__c,
+    competitors: opp.Gong__MainCompetitors__c,
+    close_date: opp.CloseDate,
+  } : null,
       gong_calls: calls
         .filter(c =>
           c.Gong__Call_Brief__c &&
@@ -560,5 +562,4 @@ async function runPipeline() {
   console.log('Pipeline complete.');
 }
 
-cron.schedule('0 6 1,8,15,22 * *', runPipeline);
-console.log('Scheduler running.');
+runPipeline();

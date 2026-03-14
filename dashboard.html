@@ -264,12 +264,21 @@
              </div>`
           : '';
 
-        return `
-          <div class="card">
-            <div class="card-header">
-              <span class="account-name">${r.name}</span>
-              <span class="score-badge ${scoreClass}">${r.score}/10 · ${r.confidence || ''}</span>
-            </div>
+const sfData = r.crm_data?.salesforce || {};
+const inPipeline = sfData.has_open_opportunity;
+const pipelineBadge = inPipeline
+  ? `<span style="font-size:0.65rem;background:#1a1200;color:#f59e0b;border:1px solid #78350f;padding:0.15rem 0.5rem;border-radius:4px;white-space:nowrap;">⚡ In Pipeline</span>`
+  : `<span style="font-size:0.65rem;background:#0a0a14;color:#555;border:1px solid #1e1e2a;padding:0.15rem 0.5rem;border-radius:4px;white-space:nowrap;">Net New</span>`;
+
+return `
+  <div class="card">
+    <div class="card-header">
+      <span class="account-name">${r.name}</span>
+      <div style="display:flex;gap:0.4rem;align-items:center;flex-shrink:0;">
+        ${pipelineBadge}
+        <span class="score-badge ${scoreClass}">${r.score}/10 · ${r.confidence || ''}</span>
+      </div>
+    </div>
             ${firmoHTML}
             ${whyAccountHTML}
             ${whyNowHTML}
