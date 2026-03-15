@@ -6,218 +6,41 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: 'Inter', sans-serif;
-      background: #0a0a0a;
-      color: #d4d4d4;
-      padding: 2rem;
-      min-height: 100vh;
-    }
-
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 2rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid #1e1e1e;
-    }
-
-    header h1 {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: #fff;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }
-
-    .refresh {
-      background: none;
-      border: 1px solid #2a2a2a;
-      color: #555;
-      padding: 0.35rem 0.8rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.72rem;
-      font-family: inherit;
-      transition: all 0.15s;
-    }
-
+    body { font-family: 'Inter', sans-serif; background: #0a0a0a; color: #d4d4d4; padding: 2rem; min-height: 100vh; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #1e1e1e; }
+    header h1 { font-size: 0.85rem; font-weight: 600; color: #fff; letter-spacing: 0.1em; text-transform: uppercase; }
+    .refresh { background: none; border: 1px solid #2a2a2a; color: #555; padding: 0.35rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.72rem; font-family: inherit; transition: all 0.15s; }
     .refresh:hover { border-color: #444; color: #aaa; }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-      gap: 1rem;
-    }
-
-    .card {
-      background: #111;
-      border: 1px solid #1e1e1e;
-      border-radius: 12px;
-      padding: 1.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 1.1rem;
-      transition: border-color 0.15s;
-    }
-
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 1rem; }
+    .card { background: #111; border: 1px solid #1e1e1e; border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.1rem; transition: border-color 0.15s; }
     .card:hover { border-color: #2a2a2a; }
-
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 1rem;
-    }
-
-    .account-name {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #fff;
-    }
-
-    .badges {
-      display: flex;
-      gap: 0.4rem;
-      align-items: center;
-      flex-shrink: 0;
-    }
-
-    .score-badge {
-      font-size: 0.72rem;
-      font-weight: 600;
-      padding: 0.22rem 0.65rem;
-      border-radius: 20px;
-      white-space: nowrap;
-    }
-
+    .card-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .account-name { font-size: 1rem; font-weight: 600; color: #fff; }
+    .badges { display: flex; gap: 0.4rem; align-items: center; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+    .score-badge { font-size: 0.72rem; font-weight: 600; padding: 0.22rem 0.65rem; border-radius: 20px; white-space: nowrap; }
     .score-badge.high { background: #0a1f12; color: #4ade80; border: 1px solid #14532d; }
     .score-badge.med  { background: #171200; color: #fbbf24; border: 1px solid #78350f; }
     .score-badge.low  { background: #170808; color: #f87171; border: 1px solid #7f1d1d; }
-
-    .pipeline-badge {
-      font-size: 0.65rem;
-      font-weight: 600;
-      padding: 0.18rem 0.5rem;
-      border-radius: 4px;
-      white-space: nowrap;
-    }
-
-    .pipeline-badge.in-pipeline {
-      background: #1a1200;
-      color: #f59e0b;
-      border: 1px solid #78350f;
-    }
-
-    .pipeline-badge.net-new {
-      background: #0a0a14;
-      color: #444;
-      border: 1px solid #1e1e2a;
-    }
-
-    .firmographics {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      align-items: center;
-    }
-
-    .firmo-pill {
-      font-size: 0.7rem;
-      padding: 0.22rem 0.6rem;
-      border-radius: 4px;
-      color: #555;
-      background: #141414;
-      border: 1px solid #1e1e1e;
-      text-decoration: none;
-      display: inline-block;
-    }
-
+    .pipeline-badge { font-size: 0.65rem; font-weight: 600; padding: 0.18rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+    .pipeline-badge.in-pipeline { background: #1a1200; color: #f59e0b; border: 1px solid #78350f; }
+    .pipeline-badge.net-new { background: #0a0a14; color: #444; border: 1px solid #1e1e2a; }
+    .firmographics { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+    .firmo-pill { font-size: 0.7rem; padding: 0.22rem 0.6rem; border-radius: 4px; color: #555; background: #141414; border: 1px solid #1e1e1e; text-decoration: none; display: inline-block; }
     .firmo-pill span { color: #888; font-weight: 500; }
-
-    .firmo-pill.signal {
-      background: #0d1f0e;
-      border-color: #1a3a1c;
-      color: #4ade80;
-    }
-
-    .firmo-pill.linkedin {
-      background: #0a1628;
-      border-color: #0a66c2;
-      color: #4a9eda;
-    }
-
-    .firmo-pill.linkedin:hover {
-      background: #0d1e3a;
-      color: #6db3f2;
-    }
-
-    .divider {
-      border: none;
-      border-top: 1px solid #171717;
-    }
-
-    .section {
-      display: flex;
-      flex-direction: column;
-      gap: 0.55rem;
-    }
-
-    .section-label {
-      font-size: 0.62rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #333;
-    }
-
-    .bullets {
-      display: flex;
-      flex-direction: column;
-      gap: 0.55rem;
-    }
-
-    .bullet {
-      display: grid;
-      grid-template-columns: 6px 1fr;
-      gap: 0.6rem;
-      align-items: start;
-    }
-
-    .bullet-dot {
-      width: 3px;
-      height: 3px;
-      background: #2e2e2e;
-      border-radius: 50%;
-      margin-top: 0.52rem;
-      flex-shrink: 0;
-    }
-
-    .bullet-text {
-      font-size: 0.78rem;
-      color: #777;
-      line-height: 1.7;
-    }
-
-    .bullet-text strong {
-      color: #bbb;
-      font-weight: 500;
-    }
-
-    .meta {
-      font-size: 0.65rem;
-      color: #2a2a2a;
-    }
-
-    .empty {
-      color: #2a2a2a;
-      font-size: 0.85rem;
-      text-align: center;
-      padding: 5rem;
-      grid-column: 1/-1;
-    }
+    .firmo-pill.signal { background: #0d1f0e; border-color: #1a3a1c; color: #4ade80; }
+    .firmo-pill.navattic { background: #1a0d1f; border-color: #3a1a4a; color: #c084fc; }
+    .firmo-pill.linkedin { background: #0a1628; border-color: #0a66c2; color: #4a9eda; }
+    .firmo-pill.linkedin:hover { background: #0d1e3a; color: #6db3f2; }
+    .divider { border: none; border-top: 1px solid #171717; }
+    .section { display: flex; flex-direction: column; gap: 0.55rem; }
+    .section-label { font-size: 0.62rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: #333; }
+    .bullets { display: flex; flex-direction: column; gap: 0.55rem; }
+    .bullet { display: grid; grid-template-columns: 6px 1fr; gap: 0.6rem; align-items: start; }
+    .bullet-dot { width: 3px; height: 3px; background: #2e2e2e; border-radius: 50%; margin-top: 0.52rem; flex-shrink: 0; }
+    .bullet-text { font-size: 0.78rem; color: #777; line-height: 1.7; }
+    .bullet-text strong { color: #bbb; font-weight: 500; }
+    .meta { font-size: 0.65rem; color: #2a2a2a; }
+    .empty { color: #2a2a2a; font-size: 0.85rem; text-align: center; padding: 5rem; grid-column: 1/-1; }
   </style>
 </head>
 <body>
@@ -244,6 +67,8 @@
         const apollo = r.apollo_data || {};
         const sfData = r.crm_data?.salesforce || {};
         const inPipeline = sfData.has_open_opportunity;
+        const navatticTour = sfData.navattic_product_tour;
+        const navatticTourType = sfData.navattic_tour_type;
 
         const whyAccount = extractSection(r.narrative || '', 'account');
         const whyNow = extractSection(r.narrative || '', 'now');
@@ -259,9 +84,11 @@
 
         // Signal pills
         const signalPills = [];
-        if (apollo.uses_kubernetes) signalPills.push('⎈ Kubernetes confirmed');
-        if (apollo.born_in_cloud) signalPills.push('☁ Born in cloud');
-        if (apollo.active_devex_jobs) signalPills.push('⚙ DevEx hiring');
+        if (apollo.uses_kubernetes) signalPills.push({ label: '⎈ Kubernetes confirmed', cls: 'signal' });
+        if (apollo.born_in_cloud) signalPills.push({ label: '☁ Born in cloud', cls: 'signal' });
+        if (apollo.active_devex_jobs) signalPills.push({ label: '⚙ DevEx hiring', cls: 'signal' });
+        if (apollo.has_intent_signal) signalPills.push({ label: '👁 Website visitor', cls: 'signal' });
+        if (navatticTour) signalPills.push({ label: `🎯 Tour: ${navatticTourType || 'Product tour'}`, cls: 'navattic' });
 
         // LinkedIn pill
         const linkedinPill = apollo.linkedin_url
@@ -270,7 +97,7 @@
 
         const allPills = [
           ...factPills.map(p => `<div class="firmo-pill">${p}</div>`),
-          ...signalPills.map(p => `<div class="firmo-pill signal">${p}</div>`),
+          ...signalPills.map(p => `<div class="firmo-pill ${p.cls}">${p.label}</div>`),
           linkedinPill,
         ].join('');
 
@@ -283,17 +110,11 @@
           : `<span class="pipeline-badge net-new">Net New</span>`;
 
         const whyAccountHTML = whyAccount
-          ? `<div class="section">
-               <div class="section-label">Why this account</div>
-               <div class="bullets">${toBullets(whyAccount)}</div>
-             </div>`
+          ? `<div class="section"><div class="section-label">Why this account</div><div class="bullets">${toBullets(whyAccount)}</div></div>`
           : '';
 
         const whyNowHTML = whyNow
-          ? `<div class="section">
-               <div class="section-label">Why now</div>
-               <div class="bullets">${toBullets(whyNow)}</div>
-             </div>`
+          ? `<div class="section"><div class="section-label">Why now</div><div class="bullets">${toBullets(whyNow)}</div></div>`
           : '';
 
         return `
@@ -314,7 +135,6 @@
     }
 
     function extractSection(text, section) {
-      // Strip any leading title/header lines
       const stripped = text
         .replace(/^\*\*.*?\*\*\s*\n?/, '')
         .replace(/^#+.*\n?/, '')
@@ -322,15 +142,12 @@
         .replace(/^---\s*\n?/, '');
 
       const lower = stripped.toLowerCase();
-
-      // Find exact positions of both section markers
       const accountIdx = lower.indexOf('why this account:');
       const nowIdx = lower.indexOf('why now:');
 
       if (section === 'account') {
         if (accountIdx === -1) return null;
         const start = accountIdx + 'why this account:'.length;
-        // Cut off exactly at "why now:" — never go past it
         const end = nowIdx > accountIdx ? nowIdx : stripped.length;
         return stripped.slice(start, end)
           .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')

@@ -9,7 +9,7 @@ const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ─── Auto-refresh Salesforce token ───────────────────────────────────────────
-function refreshSalesforceToken() {
+async function refreshSalesforceToken() {
   try {
     const result = execSync('sf org display --target-org intent-stack --json', {
       encoding: 'utf8'
@@ -17,9 +17,24 @@ function refreshSalesforceToken() {
     const data = JSON.parse(result);
     process.env.SF_ACCESS_TOKEN = data.result.accessToken;
     process.env.SF_INSTANCE_URL = data.result.instanceUrl;
-    console.log('Salesforce token refreshed.');
-  } catch (err) {
-    console.error('Failed to refresh Salesforce token:', err.message);
+    console.log('Salesforce token refreshed via CLI.');
+  } catch {
+    try {
+      const res = await axios.post(
+        'https://login.salesforce.com/services/oauth2/token',
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          client_id: process.env.SF_CLIENT_ID,
+          refresh_token: process.env.SF_REFRESH_TOKEN,
+        }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      process.env.SF_ACCESS_TOKEN = res.data.access_token;
+      process.env.SF_INSTANCE_URL = res.data.instance_url || process.env.SF_INSTANCE_URL;
+      console.log('Salesforce token refreshed via OAuth.');
+    } catch (err) {
+      console.error('Failed to refresh Salesforce token:', err.message);
+    }
   }
 }
 
@@ -42,17 +57,19 @@ Score accounts 1-10 on purchase intent based on the signals below.
 HIGH-INTENT signals (each one increases score significantly):
 - Kubernetes confirmed: Apollo tech stack or web signals confirm Kubernetes usage
 - Engineering headcount growth 20%+: Apollo shows 6-month or 12-month headcount growth over 20%
-- Active Platform or Developer Experience job posting: Apollo or web signals show hiring for platform engineering, DevEx, internal developer portal, developer productivity, or DevOps roles
+- Active Platform or Developer Experience job posting: hiring for platform engineering, DevEx, internal developer portal, developer productivity, or DevOps roles
 - New Platform or DevEx leader hired: a new VP/Director/Head of Platform, DevEx, or Developer Productivity has joined
 - Any Platform or DevEx hire: any engineer hired into a platform, DevEx, or internal tooling role
 - Employee from a current Okteto customer has moved to this account: Apollo confirms a person from a customer company now works here
 - Previous Salesforce opportunity: this account was in our pipeline before — use the stage, loss reason, and competitors to understand context
-- Gong call history: there are recorded conversations with this account — use the call briefs and key points for context
+- Gong call history: there are recorded conversations — use the call briefs and key points for context
 - Recent funding round: Apollo shows funding in the last 6 months
 - Born-in-cloud company: founded after 2002 with 300-5000 employees — cloud-native by default, boost score by 1-2 points
+- Website intent signal: someone from this company visited okteto.com recently
+- Navattic product tour completed: someone from this account took an Okteto product tour — very strong buying signal, reference the specific tour they took (e.g. Hot Reload, Catalog, Okteto tour)
 
 CONTEXTUAL signals:
-- Already has an open Salesforce opportunity: account is already being worked by the team — note this in your signals as "Already in pipeline"
+- Already has an open Salesforce opportunity: account is already being worked — note as "Already in pipeline"
 
 LOW-INTENT signals:
 - No engineering hiring activity
@@ -61,7 +78,7 @@ LOW-INTENT signals:
 - Already using a direct competitor with no signs of switching
 
 Score guide:
-- 8-10: Multiple high-intent signals, especially CRM + Apollo signals together
+- 8-10: Multiple high-intent signals, especially CRM + Apollo signals together, or Navattic/website intent present
 - 5-7: One or two high-intent signals
 - 1-4: Low-intent or no signals
 
@@ -76,8 +93,10 @@ async function prospectNewAccounts() {
   const totalPages = 50;
 
   const EXCLUDE_KEYWORDS = [
-    'consulting', 'consultancy', 'agency', 'advisory', 'services firm',
-    'managed services', 'systems integrator', 'staffing', 'outsourcing',
+    'consulting', 'consultancy', 'consultant', 'agency', 'advisory',
+    'services firm', 'managed services', 'systems integrator', 'staffing',
+    'outsourcing', 'professional services', 'it services', 'software services',
+    'technology services', 'digital agency', 'solutions provider',
   ];
 
   for (let page = 1; page <= totalPages; page++) {
@@ -91,7 +110,7 @@ async function prospectNewAccounts() {
             'Sweden', 'Spain', 'Denmark', 'Finland', 'Norway',
             'Switzerland', 'Poland', 'Czech Republic', 'Romania', 'Portugal',
           ],
-          organization_num_employees_ranges: ['201,500', '501,1000', '1001,5000'],
+          organization_num_employees_ranges: ['51,200', '201,500', '501,1000'],
           q_organization_job_titles: [
             'platform engineer',
             'platform engineering',
@@ -110,6 +129,7 @@ async function prospectNewAccounts() {
             'jenkins',
             'gitlab',
           ],
+          q_organization_keyword_tags: ['saas', 'software', 'fintech', 'b2b software'],
           per_page: 100,
           page,
         },
@@ -134,26 +154,33 @@ async function prospectNewAccounts() {
         const nameAndKeywords = `${org.name} ${(org.keywords || []).join(' ')}`.toLowerCase();
         if (EXCLUDE_KEYWORDS.some(k => nameAndKeywords.includes(k))) continue;
 
-        let icpScore = 0;
-        const employeeCount = org.estimated_num_employees || 0;
         const growth6mo = org.organization_headcount_six_month_growth || 0;
         const growth12mo = org.organization_headcount_twelve_month_growth || 0;
+        const hasFunding = !!org.latest_funding_round_date;
+        const hasIntentSignal = !!org.has_intent_signal_account;
+
+        if (growth12mo <= 0 && growth6mo <= 0 && !hasFunding && !hasIntentSignal) continue;
+
+        let icpScore = 0;
+        const employeeCount = org.estimated_num_employees || 0;
         const foundedYear = org.founded_year || 0;
 
         if (growth12mo >= 0.2) icpScore += 4;
         if (growth12mo >= 0.5) icpScore += 2;
         if (growth6mo >= 0.2) icpScore += 2;
         if (foundedYear >= 2002) icpScore += 2;
-        if (employeeCount >= 300 && employeeCount <= 2000) icpScore += 1;
-        if (org.latest_funding_round_date) {
+        if (employeeCount >= 100 && employeeCount <= 1000) icpScore += 1;
+        if (hasFunding) {
           const fundingAge = Date.now() - new Date(org.latest_funding_round_date).getTime();
           if (fundingAge < 180 * 24 * 60 * 60 * 1000) icpScore += 2;
         }
+        if (hasIntentSignal) icpScore += 1;
 
         allCandidates.push({
           name: org.name,
           domain: org.primary_domain,
           icpScore,
+          hasIntentSignal,
         });
       }
 
@@ -175,9 +202,9 @@ async function prospectNewAccounts() {
     .sort((a, b) => b.icpScore - a.icpScore)
     .slice(0, 50);
 
-  console.log(`Top ${top.length} from ${allCandidates.length} total.`);
+  const intentCount = top.filter(c => c.hasIntentSignal).length;
+  console.log(`Top ${top.length} from ${allCandidates.length} total. ${intentCount} have intent signals.`);
 
-  // CASCADE constraints handle signals/scores automatically
   await db.query('DELETE FROM accounts WHERE priority = 0');
 
   let added = 0;
@@ -278,6 +305,7 @@ async function enrichFromApollo(domain, accountName) {
       customer_employee_matches: customerMatches,
       born_in_cloud: foundedYear != null && employeeCount != null &&
         foundedYear >= 2002 && employeeCount >= 300 && employeeCount <= 5000,
+      has_intent_signal: !!org.has_intent_signal_account,
     };
   } catch (err) {
     console.error(`Apollo enrichment failed for ${domain}:`, err.message);
@@ -291,7 +319,10 @@ async function enrichFromSalesforce(domain) {
     const accountRes = await axios.get(
       `${process.env.SF_INSTANCE_URL}/services/data/v59.0/query`,
       {
-        params: { q: `SELECT Id, Name FROM Account WHERE Domain__c = '${domain}' LIMIT 1` },
+        params: {
+          q: `SELECT Id, Name, Navattic_Product_Tour__c, Navattic_Visitors__c
+              FROM Account WHERE Domain__c = '${domain}' LIMIT 1`
+        },
         headers: { Authorization: `Bearer ${process.env.SF_ACCESS_TOKEN}` },
       }
     );
@@ -340,6 +371,8 @@ async function enrichFromSalesforce(domain) {
       source: 'salesforce',
       account_name: account.Name,
       has_open_opportunity: opp ? !opp.IsClosed : false,
+      navattic_product_tour: account.Navattic_Product_Tour__c || false,
+      navattic_tour_type: account.Navattic_Visitors__c || null,
       previous_opportunity: opp ? {
         stage: opp.StageName,
         is_won: opp.IsWon,
@@ -452,10 +485,12 @@ RULES:
 - Do NOT repeat "Why this account" anywhere in the "Why now" section
 - Do NOT use any markdown, bold, headers, bullets, numbers, or symbols
 - Do NOT write the company name as a header
-- If the account already has an open Salesforce opportunity, note the team is already engaged and focus on what has changed
+- If the account already has an open Salesforce opportunity, note the team is already engaged
 - If there are Gong call briefs, reference specific things discussed
-- If Apollo shows Kubernetes in the tech stack, mention it specifically
+- If Apollo shows Kubernetes in the tech stack, mention it
 - If Apollo shows recent funding, reference it as a reason timing is right
+- If there is a Navattic product tour, name the specific tour they took and note this is active product evaluation
+- If there is a website intent signal, mention someone from the company visited okteto.com
 - Every sentence must reference specific data from the signals below
 
 Account: ${accountName}
@@ -534,5 +569,4 @@ async function runPipeline() {
   console.log('Pipeline complete.');
 }
 
-cron.schedule('0 6 1,8,15,22 * *', runPipeline);
-console.log('Scheduler running.');
+runPipeline();
