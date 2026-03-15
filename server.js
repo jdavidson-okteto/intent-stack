@@ -2,6 +2,7 @@ import express from 'express';
 import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import 'dotenv/config';
 
 const app = express();
@@ -44,6 +45,18 @@ app.get('/api/results', async (req, res) => {
     res.json(results);
   } catch (err) {
     console.error('API error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Manual pipeline trigger ──────────────────────────────────────────────────
+app.post('/api/run', async (req, res) => {
+  try {
+    const { runPipeline } = await import('./index.js');
+    res.json({ status: 'started', message: 'Pipeline triggered — check back in ~5 minutes.' });
+    runPipeline();
+  } catch (err) {
+    console.error('Pipeline trigger error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

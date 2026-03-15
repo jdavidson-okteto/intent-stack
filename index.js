@@ -569,5 +569,9 @@ async function runPipeline() {
   console.log('Pipeline complete.');
 }
 
+// Export for manual trigger via server.js
+export { runPipeline };
+
+// Cron schedule — runs automatically 4x per month
 cron.schedule('0 6 1,8,15,22 * *', runPipeline);
 console.log('Scheduler running.');

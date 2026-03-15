@@ -9,8 +9,13 @@
     body { font-family: 'Inter', sans-serif; background: #0a0a0a; color: #d4d4d4; padding: 2rem; min-height: 100vh; }
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #1e1e1e; }
     header h1 { font-size: 0.85rem; font-weight: 600; color: #fff; letter-spacing: 0.1em; text-transform: uppercase; }
+    .header-actions { display: flex; gap: 0.5rem; align-items: center; }
     .refresh { background: none; border: 1px solid #2a2a2a; color: #555; padding: 0.35rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.72rem; font-family: inherit; transition: all 0.15s; }
     .refresh:hover { border-color: #444; color: #aaa; }
+    .refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+    .run-btn { background: #0a1f12; border: 1px solid #14532d; color: #4ade80; padding: 0.35rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.72rem; font-family: inherit; transition: all 0.15s; }
+    .run-btn:hover { background: #0d2a18; }
+    .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 1rem; }
     .card { background: #111; border: 1px solid #1e1e1e; border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.1rem; transition: border-color 0.15s; }
     .card:hover { border-color: #2a2a2a; }
@@ -41,18 +46,51 @@
     .bullet-text strong { color: #bbb; font-weight: 500; }
     .meta { font-size: 0.65rem; color: #2a2a2a; }
     .empty { color: #2a2a2a; font-size: 0.85rem; text-align: center; padding: 5rem; grid-column: 1/-1; }
+    .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: #111; border: 1px solid #2a2a2a; color: #aaa; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.75rem; font-family: 'Inter', sans-serif; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 999; }
+    .toast.show { opacity: 1; }
   </style>
 </head>
 <body>
   <header>
-    <h1>⚡ Intent Stack</h1>
-    <button class="refresh" onclick="load()">↻ Refresh</button>
+    <h1>⚡ High Intent Okteto Accounts ⚡</h1>
+    <div class="header-actions">
+      <button class="run-btn" onclick="triggerRun()" id="runBtn">▶ Run Pipeline</button>
+      <button class="refresh" onclick="load()">↻ Refresh</button>
+    </div>
   </header>
   <div class="grid" id="grid"></div>
+  <div class="toast" id="toast"></div>
 
   <script>
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 4000);
+    }
+
+    async function triggerRun() {
+      const btn = document.getElementById('runBtn');
+      btn.textContent = '⏳ Running...';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/run', { method: 'POST' });
+        const data = await res.json();
+        btn.textContent = '✓ Started';
+        showToast('Pipeline started — refresh in ~5 minutes to see new results.');
+        setTimeout(() => {
+          btn.textContent = '▶ Run Pipeline';
+          btn.disabled = false;
+        }, 8000);
+      } catch (err) {
+        btn.textContent = '✗ Error';
+        btn.disabled = false;
+        showToast('Failed to start pipeline: ' + err.message);
+      }
+    }
+
     async function load() {
-const res = await fetch('/api/results?t=' + Date.now());
+      const res = await fetch('/api/results?t=' + Date.now());
       const data = await res.json();
       const grid = document.getElementById('grid');
 
