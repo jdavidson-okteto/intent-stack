@@ -504,6 +504,62 @@ CRM data: ${JSON.stringify(crmData)}`,
   return res.content[0].text;
 }
 
+// ─── Slack notification ───────────────────────────────────────────────────────
+async function notifySlack(top) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.log('No SLACK_WEBHOOK_URL set, skipping notification.');
+    return;
+  }
+
+  const scoreEmoji = (s) => s >= 8 ? '🔴' : s >= 6 ? '🟡' : '⚪';
+
+  const fields = top.slice(0, 3).map(({ account, score, narrative }) => {
+    const whyNow = narrative?.split('Why now:')[1]?.trim().split('.')[0] || 'No narrative';
+    return {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `${scoreEmoji(score.score)} *${account.name}* — Score: ${score.score}/10\n${whyNow}.`
+      }
+    };
+  });
+
+  const payload = {
+    blocks: [
+      {
+        type: 'header',
+        text: { type: 'plain_text', text: '⚡ Intent Stack — Pipeline Complete', emoji: true }
+      },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*${top.length} accounts scored.* Top 3 highest-intent accounts:` }
+      },
+      { type: 'divider' },
+      ...fields,
+      { type: 'divider' },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: `Run completed at ${new Date().toUTCString()} · <https://intent-stack-production.up.railway.app|View full dashboard>`
+        }]
+      }
+    ]
+  };
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    console.log(res.ok ? '✅ Slack notification sent.' : `Slack webhook failed: ${res.status}`);
+  } catch (err) {
+    console.error('Error sending Slack notification:', err.message);
+  }
+}
+
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
 async function runPipeline() {
   await refreshSalesforceToken();
@@ -549,23 +605,28 @@ async function runPipeline() {
     .sort((a, b) => b.score.score - a.score.score)
     .slice(0, 10);
 
-  for (const { account, score, signals, crmData } of top) {
+  for (const item of top) {
     try {
-      const narrative = await generateNarrative(account.name, signals, crmData, score);
+      const narrative = await generateNarrative(
+        item.account.name, item.signals, item.crmData, item.score
+      );
+
+      item.narrative = narrative;
 
       await db.query(
         `UPDATE scores SET narrative = $1
          WHERE account_id = $2
          AND scored_at = (SELECT MAX(scored_at) FROM scores WHERE account_id = $2)`,
-        [narrative, account.id]
+        [narrative, item.account.id]
       );
 
-      console.log(`Narrative written for ${account.name}`);
+      console.log(`Narrative written for ${item.account.name}`);
     } catch (err) {
-      console.error(`Narrative failed for ${account.name}:`, err.message);
+      console.error(`Narrative failed for ${item.account.name}:`, err.message);
     }
   }
 
+  await notifySlack(top);
   console.log('Pipeline complete.');
 }
 
