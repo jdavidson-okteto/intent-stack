@@ -52,7 +52,7 @@
 
   <script>
     async function load() {
-      const res = await fetch('/api/results');
+const res = await fetch('/api/results?t=' + Date.now());
       const data = await res.json();
       const grid = document.getElementById('grid');
 
