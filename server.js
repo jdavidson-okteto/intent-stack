@@ -2,7 +2,7 @@ import express from 'express';
 import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
+import { spawn } from 'child_process';
 import 'dotenv/config';
 
 const app = express();
@@ -50,11 +50,18 @@ app.get('/api/results', async (req, res) => {
 });
 
 // ─── Manual pipeline trigger ──────────────────────────────────────────────────
-app.post('/api/run', async (req, res) => {
+app.post('/api/run', (req, res) => {
   try {
-    const { runPipeline } = await import('./index.js');
-    res.json({ status: 'started', message: 'Pipeline triggered — check back in ~5 minutes.' });
-    runPipeline();
+    const indexPath = path.join(__dirname, 'index.js');
+    const child = spawn(process.execPath, [indexPath, '--run-once'], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
+      env: { ...process.env },
+      cwd: __dirname,
+    });
+    child.unref();
+    console.log('Pipeline triggered manually.');
+    res.json({ status: 'started', message: 'Pipeline triggered — refresh in ~5 minutes.' });
   } catch (err) {
     console.error('Pipeline trigger error:', err.message);
     res.status(500).json({ error: err.message });
