@@ -55,7 +55,7 @@ app.post('/api/run', (req, res) => {
     const indexPath = path.join(__dirname, 'index.js');
     const child = spawn(process.execPath, [indexPath, '--run-once'], {
       detached: true,
-      stdio: ['ignore', 'ignore', 'ignore'],
+      stdio: ['ignore', 'inherit', 'inherit'],
       env: { ...process.env },
       cwd: __dirname,
     });
