@@ -596,12 +596,32 @@ async function notifySlack(top) {
 
   const fields = top.slice(0, 3).map(({ account, score, narrative, crmData }) => {
     const keySignal = getKeySignal(score, crmData);
+    // Build a short Okteto-relevant context line from apollo data
+    const apollo = crmData?.apollo || {};
+    const contextParts = [];
+    if (apollo.uses_kubernetes) contextParts.push('Kubernetes confirmed');
+    if (apollo.active_devex_jobs) contextParts.push('hiring Platform/DevEx');
+    if (apollo.headcount_6mo_growth >= 20) contextParts.push(`+${apollo.headcount_6mo_growth}% eng headcount (6mo)`);
+    if (apollo.born_in_cloud) contextParts.push('born-in-cloud');
+    if (apollo.employee_count) contextParts.push(`${apollo.employee_count} employees`);
+
+    const context = contextParts.length > 0 ? contextParts.join(' · ') : null;
+
+    // First sentence of why now as the summary hook
+    const summary = narrative?.split('Why now:')[1]?.trim().split('.')[0] ||
+                    narrative?.split('Why this account:')[1]?.trim().split('.')[0] ||
+                    'See dashboard for full narrative';
+
+    const lines = [
+      `${scoreColor(score.score)} *${account.name}* — Score: ${score.score}/10`,
+      keySignal,
+      context ? `_${context}_` : null,
+      `${summary}.`,
+    ].filter(Boolean).join('\n');
+
     return {
       type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `${scoreColor(score.score)} *${account.name}* — Score: ${score.score}/10\n${keySignal}`
-      }
+      text: { type: 'mrkdwn', text: lines }
     };
   });
 
