@@ -129,7 +129,7 @@ async function prospectNewAccounts() {
             'jenkins',
             'gitlab',
           ],
-          q_organization_keyword_tags: ['saas', 'software', 'fintech', 'b2b software'],
+          // q_organization_keyword_tags: ['saas', 'software', 'fintech', 'b2b software'],
           per_page: 100,
           page,
         },
@@ -194,6 +194,7 @@ async function prospectNewAccounts() {
 
     } catch (err) {
       console.error(`Apollo page ${page} failed:`, err.message);
+      console.error('Apollo error detail:', err.response?.data);
       break;
     }
   }
