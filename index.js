@@ -51,6 +51,7 @@ const CURRENT_CUSTOMERS = [
 
 // ─── Competitors to detect ────────────────────────────────────────────────────
 const COMPETITORS = [
+  'Signadot', 'Bunnyshell', 'MirrorD', 'Metal Bear',
   'Telepresence', 'Tilt', 'Garden', 'Codespaces', 'GitHub Codespaces',
   'Gitpod', 'DevZero', 'Daytona', 'Coder', 'Skaffold',
 ];
@@ -73,7 +74,7 @@ HIGH-INTENT signals (each one increases score significantly):
 - Born-in-cloud company: founded after 2002 with 300-5000 employees — cloud-native by default, boost score by 1-2 points
 - Website intent signal: someone from this company visited okteto.com recently
 - Navattic product tour completed: someone from this account took an Okteto product tour — very strong buying signal, reference the specific tour they took (e.g. Hot Reload, Catalog, Okteto tour)
-- Competitor detected: web signals or Apollo tech stack mention Signadot, MirrorD, Metal Bear, Bunnyshell — this is a direct displacement opportunity, boost score by 2 points and name the competitor
+- Competitor detected: web signals or Apollo tech stack mention Signadot, Bunnyshell, MirrorD, Metal Bear, Telepresence, Tilt, Garden, Codespaces, GitHub Codespaces, Gitpod, DevZero, Daytona, Coder, or Skaffold — this is a direct displacement opportunity, boost score by 2 points and name the competitor
 - Job posting pain points: job_posting_text mentions "inconsistent environments", "slow onboarding", "environment drift", "local development", "inner loop", "developer productivity", "reproducible environments", or "platform engineering" — these map directly to Okteto's core value prop, boost score by 1-2 points
 
 CONTEXTUAL signals:
@@ -571,15 +572,35 @@ async function notifySlack(top) {
     return;
   }
 
-  const scoreEmoji = (s) => s >= 8 ? '🔴' : s >= 6 ? '🟡' : '⚪';
+  const scoreColor = (s) => s >= 8 ? '🟢' : s >= 6 ? '🟡' : '⚪';
 
-  const fields = top.slice(0, 3).map(({ account, score, narrative }) => {
-    const whyNow = narrative?.split('Why now:')[1]?.trim().split('.')[0] || 'No narrative';
+  function getKeySignal(score, crmData) {
+    const apollo = crmData?.apollo || {};
+    const sf = crmData?.salesforce || {};
+    const competitors = crmData?.detected_competitors || [];
+
+    if (competitors.length > 0) return `🔄 Displacement opp — currently using ${competitors[0]}`;
+    if (sf.navattic_product_tour) return `🎯 Took Okteto product tour (${sf.navattic_tour_type || 'unknown tour'})`;
+    if (apollo.has_intent_signal) return `👁 Website visitor signal — someone visited okteto.com`;
+    if (apollo.active_devex_jobs) return `⚙ Actively hiring Platform/DevEx engineers`;
+    if (apollo.uses_kubernetes) {
+      const growth = apollo.headcount_6mo_growth;
+      return growth
+        ? `⎈ Kubernetes confirmed + ${growth}% eng headcount growth (6mo)`
+        : `⎈ Kubernetes confirmed in tech stack`;
+    }
+    if (apollo.headcount_6mo_growth >= 20) return `📈 ${apollo.headcount_6mo_growth}% engineering headcount growth in last 6 months`;
+    if (apollo.latest_funding_date) return `💰 Recent funding round — budget likely available`;
+    return score.top_signals?.[0] || 'See dashboard for details';
+  }
+
+  const fields = top.slice(0, 3).map(({ account, score, narrative, crmData }) => {
+    const keySignal = getKeySignal(score, crmData);
     return {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `${scoreEmoji(score.score)} *${account.name}* — Score: ${score.score}/10\n${whyNow}.`
+        text: `${scoreColor(score.score)} *${account.name}* — Score: ${score.score}/10\n${keySignal}`
       }
     };
   });
