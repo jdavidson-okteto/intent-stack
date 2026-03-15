@@ -607,10 +607,26 @@ async function notifySlack(top) {
 
     const context = contextParts.length > 0 ? contextParts.join(' · ') : null;
 
-    // First sentence of why now as the summary hook
-    const summary = narrative?.split('Why now:')[1]?.trim().split('.')[0] ||
-                    narrative?.split('Why this account:')[1]?.trim().split('.')[0] ||
-                    'See dashboard for full narrative';
+    // Extract a meaningful summary sentence — skip short/bad sentences and avoid repeating the key signal
+    function extractSummary(text, skipKeywords) {
+      if (!text) return null;
+      const section = text.split('Why now:')[1] || text.split('Why this account:')[1] || text;
+      const sentences = section.trim().match(/[^.!?]+[.!?]+/g) || [];
+      for (const s of sentences) {
+        const trimmed = s.trim();
+        if (trimmed.length < 30) continue; // skip truncated/short sentences
+        if (skipKeywords.some(kw => trimmed.toLowerCase().includes(kw.toLowerCase()))) continue;
+        return trimmed;
+      }
+      return sentences[0]?.trim() || 'See dashboard for full narrative';
+    }
+
+    // Skip summary sentences that just repeat the key signal pill
+    const signalSkipWords = keySignal.toLowerCase().includes('visitor') ? ['visited okteto', 'okteto.com'] :
+                            keySignal.toLowerCase().includes('displacement') ? ['codespaces', 'signadot', 'bunnyshell', 'mirrord'] :
+                            keySignal.toLowerCase().includes('hiring') ? ['hiring', 'job posting'] : [];
+
+    const summary = extractSummary(narrative, signalSkipWords) || 'See dashboard for full narrative';
 
     const lines = [
       `${scoreColor(score.score)} *${account.name}* — Score: ${score.score}/10`,
