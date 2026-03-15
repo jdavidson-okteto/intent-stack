@@ -49,6 +49,12 @@ const CURRENT_CUSTOMERS = [
   'Pulsar', 'Yotpo', 'LaunchDarkly', 'ServiceTitan', 'Mercadona', 'Nexxen',
 ];
 
+// ─── Competitors to detect ────────────────────────────────────────────────────
+const COMPETITORS = [
+  'Telepresence', 'Tilt', 'Garden', 'Codespaces', 'GitHub Codespaces',
+  'Gitpod', 'DevZero', 'Daytona', 'Coder', 'Skaffold',
+];
+
 // ─── Scoring rubric ───────────────────────────────────────────────────────────
 const RUBRIC = `
 You are a B2B sales signal evaluator for a developer tooling and platform company called Okteto.
@@ -67,6 +73,8 @@ HIGH-INTENT signals (each one increases score significantly):
 - Born-in-cloud company: founded after 2002 with 300-5000 employees — cloud-native by default, boost score by 1-2 points
 - Website intent signal: someone from this company visited okteto.com recently
 - Navattic product tour completed: someone from this account took an Okteto product tour — very strong buying signal, reference the specific tour they took (e.g. Hot Reload, Catalog, Okteto tour)
+- Competitor detected: web signals or Apollo tech stack mention Signadot, MirrorD, Metal Bear, Bunnyshell — this is a direct displacement opportunity, boost score by 2 points and name the competitor
+- Job posting pain points: job_posting_text mentions "inconsistent environments", "slow onboarding", "environment drift", "local development", "inner loop", "developer productivity", "reproducible environments", or "platform engineering" — these map directly to Okteto's core value prop, boost score by 1-2 points
 
 CONTEXTUAL signals:
 - Already has an open Salesforce opportunity: account is already being worked — note as "Already in pipeline"
@@ -129,7 +137,6 @@ async function prospectNewAccounts() {
             'jenkins',
             'gitlab',
           ],
-          // q_organization_keyword_tags: ['saas', 'software', 'fintech', 'b2b software'],
           per_page: 100,
           page,
         },
@@ -411,6 +418,8 @@ function buildQueries(accountName) {
     `"${accountName}" ("platform engineer" OR "developer experience" OR "DevEx" OR "internal developer portal" OR "developer productivity" OR "devops") job hiring`,
     `"${accountName}" engineering hiring growth 2024 2025`,
     `site:linkedin.com "${accountName}" "${customerSample[0]}" OR "${customerSample[1]}"`,
+    `"${accountName}" ("platform engineer" OR "developer experience" OR "DevEx") job description`,
+    `"${accountName}" (funding OR announcement OR launch OR series OR raised) 2025 2026`,
   ];
 }
 
@@ -427,7 +436,11 @@ async function fetchSignals(accountId, accountName) {
       );
       results.push({
         q,
-        hits: data.organic?.slice(0, 3).map(r => ({ title: r.title, snippet: r.snippet })),
+        hits: data.organic?.slice(0, 3).map(r => ({
+          title: r.title,
+          snippet: r.snippet,
+          link: r.link,
+        })),
       });
     } catch (err) {
       console.error(`Serper failed for "${q}":`, err.message);
@@ -441,6 +454,48 @@ async function fetchSignals(accountId, accountName) {
   );
 
   return results;
+}
+
+// ─── Job posting scraper ──────────────────────────────────────────────────────
+async function scrapeJobPosting(accountName, signals) {
+  const jobSignal = signals.find(s =>
+    s.q.includes('job description') && s.hits?.length > 0
+  );
+  if (!jobSignal) return null;
+
+  const jobUrl = jobSignal.hits[0]?.link;
+  if (!jobUrl) return null;
+
+  try {
+    const { data } = await axios.get(jobUrl, {
+      timeout: 8000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; research-bot/1.0)' },
+    });
+
+    const text = data
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 2000);
+
+    console.log(`  Scraped JD for ${accountName}: ${text.slice(0, 80)}...`);
+    return text;
+  } catch (err) {
+    console.log(`  JD scrape failed for ${accountName}: ${err.message}`);
+    return null;
+  }
+}
+
+// ─── Competitor detector ──────────────────────────────────────────────────────
+function detectCompetitors(signals, apolloData) {
+  const allText = [
+    ...signals.flatMap(s => s.hits?.map(h => `${h.title} ${h.snippet}`) || []),
+    JSON.stringify(apolloData?.technologies || []),
+  ].join(' ');
+
+  return COMPETITORS.filter(c =>
+    allText.toLowerCase().includes(c.toLowerCase())
+  );
 }
 
 // ─── Scoring layer ────────────────────────────────────────────────────────────
@@ -492,12 +547,15 @@ RULES:
 - If Apollo shows recent funding, reference it as a reason timing is right
 - If there is a Navattic product tour, name the specific tour they took and note this is active product evaluation
 - If there is a website intent signal, mention someone from the company visited okteto.com
+- If detected_competitors is non-empty, explicitly name the competitor(s) and frame Okteto as the upgrade/replacement
+- If job_posting_text is present, reference a specific phrase or requirement from the JD that maps to Okteto's value prop (inconsistent envs, slow onboarding, inner loop, developer productivity, reproducible environments)
+- If recent news/funding signals are present, reference the specific announcement and why it creates urgency
 - Every sentence must reference specific data from the signals below
 
 Account: ${accountName}
 Score: ${score.score}/10
 Top signals: ${score.top_signals.join(', ')}
-Web signals: ${JSON.stringify(signals.slice(0, 2))}
+Web signals: ${JSON.stringify(signals.slice(0, 3))}
 CRM data: ${JSON.stringify(crmData)}`,
     }],
   });
@@ -586,7 +644,20 @@ async function runPipeline() {
         enrichFromSalesforce(account.domain),
       ]);
 
-      const crmData = { apollo: apolloData, salesforce: salesforceData };
+      const jobPostingText = await scrapeJobPosting(account.name, signals);
+      const detectedCompetitors = detectCompetitors(signals, apolloData);
+
+      if (detectedCompetitors.length > 0) {
+        console.log(`  Competitors detected for ${account.name}: ${detectedCompetitors.join(', ')}`);
+      }
+
+      const crmData = {
+        apollo: apolloData,
+        salesforce: salesforceData,
+        job_posting_text: jobPostingText,
+        detected_competitors: detectedCompetitors,
+      };
+
       const score = await scoreAccount(account.name, signals, crmData);
 
       await db.query(
